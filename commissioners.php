@@ -137,6 +137,57 @@ if ($subQuery = $conn->query("SELECT COUNT(*) as count FROM sub_org_candidates")
 if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
     $totalVotes = $votesQuery->fetch_assoc()['count'];
 }
+
+// Fetch data for vote tally tables
+// Main org data
+$mainDataQuery = $conn->query("
+    SELECT moc.organization, moc.first_name, moc.middle_name, moc.last_name, moc.position, COUNT(v.id) as vote_count
+    FROM main_org_candidates moc
+    LEFT JOIN votes v ON v.main_candidate_id = moc.id
+    WHERE moc.status = 'Accepted'
+    GROUP BY moc.id
+    ORDER BY moc.organization, vote_count DESC
+");
+$mainData = ['USC' => [], 'CSC' => []];
+while ($row = $mainDataQuery->fetch_assoc()) {
+    $org = $row['organization'] ?? 'Unknown';
+    if (in_array($org, ['USC', 'CSC'])) {
+        $name = trim(($row['first_name'] ?? '') . ' ' . ($row['middle_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
+        $mainData[$org][] = [
+            'name' => $name,
+            'position' => $row['position'] ?? 'N/A',
+            'votes' => $row['vote_count']
+        ];
+    }
+}
+
+// Sub org data
+$subDataQuery = $conn->query("
+    SELECT soc.organization, soc.first_name, soc.middle_name, soc.last_name, COUNT(v.id) as vote_count
+    FROM sub_org_candidates soc
+    LEFT JOIN votes v ON v.sub_candidate_id = soc.id
+    WHERE soc.status = 'Accepted'
+    GROUP BY soc.id
+    ORDER BY soc.organization, vote_count DESC
+");
+$subData = [];
+$subOrgs = [];
+while ($row = $subDataQuery->fetch_assoc()) {
+    $org = $row['organization'] ?? 'Unknown';
+    if (!in_array($org, $subOrgs)) {
+        $subOrgs[] = $org;
+    }
+    $name = trim(($row['first_name'] ?? '') . ' ' . ($row['middle_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
+    $subData[$org][] = [
+        'name' => $name,
+        'position' => 'Representative',
+        'votes' => $row['vote_count']
+    ];
+}
+
+// JSON encode data for JavaScript
+$mainDataJson = json_encode($mainData);
+$subDataJson = json_encode($subData);
 ?>
 
 <html lang="en">
@@ -146,393 +197,7 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CATSU iVote - Commissioner Dashboard</title>
     <link rel="stylesheet" href="assets/css/style.css" />
-    <style>
-        /* Modal styles */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow-y: auto;
-            background: rgba(0, 0, 0, 0.6);
-        }
-
-        .modal-content {
-            background: #fff;
-            margin: 5% auto;
-            padding: 20px;
-            width: 80%;
-            max-width: 900px;
-            border-radius: 10px;
-            position: relative;
-        }
-
-        .modal-content h1.title {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .close {
-            position: absolute;
-            top: 10px;
-            right: 20px;
-            cursor: pointer;
-            font-size: 28px;
-            font-weight: bold;
-        }
-
-        .steps-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }
-
-        .step-box {
-            background: #f3f4f6;
-            border-radius: 10px;
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .step-icon {
-            font-size: 28px;
-            margin-bottom: 10px;
-            color: #4f46e5;
-        }
-
-        .step-number {
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-
-        .step-title {
-            font-size: 1.1rem;
-            margin-bottom: 5px;
-        }
-
-        .step-description {
-            font-size: 0.9rem;
-            color: #374151;
-        }
-
-        /* Checkbox container */
-        .dont-show {
-            margin-top: 15px;
-            display: flex;
-            align-items: center;
-            font-size: 0.9rem;
-        }
-
-        .dont-show input {
-            margin-right: 5px;
-        }
-
-        /* Voting Status Alert */
-        .voting-alert {
-            background: linear-gradient(135deg, #fee2e2, #fecaca);
-            border: 2px solid #f87171;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(248, 113, 113, 0.3);
-        }
-
-        .voting-alert.active {
-            background: linear-gradient(135deg, #d1fae5, #a7f3d0);
-            border-color: #10b981;
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        }
-
-        .voting-alert h3 {
-            margin: 0 0 10px 0;
-            font-size: 1.3rem;
-            color: #dc2626;
-        }
-
-        .voting-alert.active h3 {
-            color: #059669;
-        }
-
-        .voting-alert p {
-            margin: 0;
-            font-size: 1.1rem;
-            font-weight: 500;
-            color: #7f1d1d;
-        }
-
-        .voting-alert.active p {
-            color: #047857;
-        }
-
-        /* Message styles */
-        .message {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            font-weight: 600;
-            text-align: center;
-        }
-
-        .message.success {
-            background: #d1fae5;
-            color: #065f46;
-            border: 1px solid #10b981;
-        }
-
-        .message.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border: 1px solid #ef4444;
-        }
-
-        /* Candidates Profile Section Styles for Commissioner (Only Accepted) */
-        .candidates-profile-section {
-            background: #fff;
-            border-radius: 12px;
-            padding: 30px;
-            margin: 20px 0;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-
-        .candidates-profile-section h2 {
-            text-align: center;
-            color: #4f46e5;
-            margin-bottom: 10px;
-            font-size: 2.2rem;
-            font-weight: 700;
-        }
-
-        .organization-section {
-            margin-bottom: 40px;
-        }
-
-        .org-title {
-            color: #1e293b;
-            font-size: 1.6rem;
-            font-weight: 700;
-            margin-bottom: 25px;
-            padding-bottom: 10px;
-            border-bottom: 3px solid #4f46e5;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .candidates-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 25px;
-            margin-top: 20px;
-        }
-
-        .candidate-card {
-            background: #ecfdf5; /* Green tint for accepted */
-            border: 2px solid #10b981;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-
-        .candidate-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.15);
-            border-color: #059669;
-        }
-
-        .candidate-image {
-            width: 100px;
-            height: 100px;
-            margin: 0 auto 15px;
-            border-radius: 50%;
-            overflow: hidden;
-            border: 4px solid #4f46e5;
-            background: #f3f4f6;
-        }
-
-        .candidate-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .candidate-info {
-            text-align: center;
-        }
-
-        .candidate-name {
-            color: #1e293b;
-            font-size: 1.3rem;
-            font-weight: 700;
-            margin: 0 0 8px 0;
-        }
-
-        .candidate-position {
-            color: #4f46e5;
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-
-        .candidate-subtitle {
-            color: #6b7280;
-            font-size: 0.95rem;
-            font-weight: 500;
-            margin-bottom: 10px;
-        }
-
-        .candidate-details {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .org-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: white;
-            margin-bottom: 5px;
-        }
-
-        .org-badge.main-org {
-            background: linear-gradient(135deg, #4f46e5, #7c3aed);
-        }
-
-        .org-badge.sub-org {
-            background: linear-gradient(135deg, #059669, #10b981);
-        }
-
-        .college-subtitle {
-            color: #374151;
-            font-size: 0.9rem;
-            background: #e5e7eb;
-            padding: 4px 10px;
-            border-radius: 12px;
-            margin-top: 5px;
-        }
-
-        .no-candidates {
-            text-align: center;
-            padding: 40px 20px;
-            color: #6b7280;
-            font-style: italic;
-        }
-
-        .no-candidates p {
-            margin: 0;
-            font-size: 1.1rem;
-        }
-
-        /* Results Summary Styles */
-        .results-section {
-            background: #fff;
-            border-radius: 12px;
-            padding: 30px;
-            margin: 20px 0;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-
-        .results-section h2 {
-            text-align: center;
-            color: #4f46e5;
-            margin-bottom: 30px;
-            font-size: 2rem;
-        }
-
-        .results-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-        }
-
-        .result-card {
-            background: #f8fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-        }
-
-        .result-card h3 {
-            color: #1e293b;
-            margin-bottom: 15px;
-            font-size: 1.3rem;
-        }
-
-        .vote-count {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #4f46e5;
-            margin: 10px 0;
-        }
-
-        .percentage {
-            font-size: 1.1rem;
-            color: #6b7280;
-        }
-
-        .results-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-
-        .results-table th,
-        .results-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .results-table th {
-            background: #f3f4f6;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .results-table tr:hover {
-            background: #f9fafb;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .candidates-grid,
-            .results-grid {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-            
-            .org-title {
-                font-size: 1.4rem;
-                flex-direction: column;
-                gap: 5px;
-                text-align: center;
-            }
-            
-            .candidate-card {
-                padding: 15px;
-            }
-            
-            .candidate-image {
-                width: 80px;
-                height: 80px;
-            }
-            
-            .candidate-name {
-                font-size: 1.1rem;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="assets/css/commissioner.css" />
 </head>
 
 <body>
@@ -656,6 +321,50 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                         </div>
                     </div>
                 </div>
+
+                <!-- Vote Tally Section -->
+                <div class="vote-tally-section">
+                    <h3>Main Organization Vote Tally</h3>
+                    <select id="mainOrgSelect">
+                        <option value="">Select Main Organization</option>
+                        <option value="USC">USC</option>
+                        <option value="CSC">CSC</option>
+                    </select>
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>Candidate Name</th>
+                                <th>Position</th>
+                                <th>Total Votes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mainVoteTbody">
+                            <tr><td colspan="3" class="no-data">Select a main organization to view tally</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="vote-tally-section">
+                    <h3>Sub Organization Vote Tally</h3>
+                    <select id="subOrgSelect">
+                        <option value="">Select Sub Organization</option>
+                        <?php foreach ($subOrgs as $sub): ?>
+                            <option value="<?= htmlspecialchars($sub) ?>"><?= htmlspecialchars($sub) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>Candidate Name</th>
+                                <th>Position</th>
+                                <th>Total Votes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subVoteTbody">
+                            <tr><td colspan="3" class="no-data">Select a sub organization to view tally</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Accepted Candidates Section for Commissioner -->
@@ -665,7 +374,6 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                     <p style="text-align: center; margin-bottom: 30px; color: #6b7280;">View the accepted candidates running for various positions</p>
 
                     <?php
-                    // Fetch accepted main org candidates grouped by organization (USC and CSC)
                     $mainOrgs = ['USC' => 'University Student Council (USC)', 'CSC' => 'College Student Council (CSC)'];
 
                     foreach ($mainOrgs as $orgCode => $orgName) {
@@ -720,7 +428,6 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                         $stmt->close();
                     }
 
-                    // Fetch only accepted sub org candidates
                     $subCandidates = $conn->query("SELECT * FROM sub_org_candidates WHERE status='Accepted' ORDER BY filing_date DESC");
                     echo "<div class='organization-section'>";
                     echo "<h3 class='org-title'>🎯 Sub Organization Candidates</h3>";
@@ -764,12 +471,10 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                     <p style="text-align: center; margin-bottom: 30px; color: #6b7280;">Election results and vote tallies</p>
                     
                     <?php
-                    // Total votes
                     $totalVotesQuery = $conn->query("SELECT COUNT(*) as total FROM votes");
                     $totalVotes = $totalVotesQuery->fetch_assoc()['total'];
                     
                     if ($totalVotes > 0) {
-                        // Main Org Results
                         echo "<div class='results-grid'>";
                         echo "<div class='result-card'>";
                         echo "<h3>Main Organization Votes</h3>";
@@ -777,7 +482,6 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                         echo "<div class='percentage'>Total Votes Cast</div>";
                         echo "</div>";
                         
-                        // Detailed table for Main Org (only accepted candidates)
                         $mainResults = $conn->query("
                             SELECT moc.id, moc.first_name, moc.last_name, moc.position, moc.main_org, moc.college, 
                                    COUNT(v.id) as vote_count
@@ -812,7 +516,6 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                             echo "</div>";
                         }
                         
-                        // Sub Org Results (only accepted candidates)
                         $subResults = $conn->query("
                             SELECT soc.id, soc.first_name, soc.last_name, soc.sub_org, soc.year, 
                                    COUNT(v.id) as vote_count
@@ -872,7 +575,6 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
             sections.forEach(section => {
                 section.style.display = (section === sectionToShow) ? "block" : "none";
             });
-            // Store the active section in sessionStorage
             const sectionId = sectionToShow.id.replace("Section", "");
             sessionStorage.setItem("activeSection", sectionId);
         }
@@ -888,7 +590,6 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
             showSection(sectionMap[activeSection] || dashboardSection);
         };
 
-        // Button click handlers
         dashboardBtn.addEventListener("click", function(e) {
             e.preventDefault();
             showSection(dashboardSection);
@@ -918,6 +619,47 @@ if ($votesQuery = $conn->query("SELECT COUNT(*) as count FROM votes")) {
                 })
                 .catch(error => console.error('Error fetching voting status:', error));
         }, 30000);
+
+        // Vote tally table JavaScript
+        const mainData = <?= $mainDataJson ?>;
+        const subData = <?= $subDataJson ?>;
+        const mainOrgSelect = document.getElementById('mainOrgSelect');
+        const subOrgSelect = document.getElementById('subOrgSelect');
+        const mainVoteTbody = document.getElementById('mainVoteTbody');
+        const subVoteTbody = document.getElementById('subVoteTbody');
+
+        function updateTable(tbody, data, selected) {
+            tbody.innerHTML = '';
+            if (selected && data[selected] && data[selected].length > 0) {
+                data[selected].forEach(cand => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${cand.name}</td>
+                        <td>${cand.position}</td>
+                        <td>${cand.votes}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="3" class="no-data">No data available for selected organization</td>';
+                tbody.appendChild(row);
+            }
+        }
+
+        if (mainOrgSelect && mainVoteTbody) {
+            mainOrgSelect.addEventListener('change', function() {
+                updateTable(mainVoteTbody, mainData, this.value);
+            });
+            mainOrgSelect.dispatchEvent(new Event('change'));
+        }
+
+        if (subOrgSelect && subVoteTbody) {
+            subOrgSelect.addEventListener('change', function() {
+                updateTable(subVoteTbody, subData, this.value);
+            });
+            subOrgSelect.dispatchEvent(new Event('change'));
+        }
     </script>
 
     <!-- Scripts -->
