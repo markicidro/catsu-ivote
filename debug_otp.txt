@@ -1,0 +1,36 @@
+2025-09-30 17:12:21 - OTP Request received
+POST data: Array
+(
+    [otp] => 270635
+)
+
+Session data: Array
+(
+    [email] => trinidadjonhelmark123@gmail.com
+    [user_id] => 27
+    [role] => voter
+    [authenticated] => 1
+    [login_time] => 1759242732
+    [otp] => 270635
+    [otp_expiry] => 1759245415
+)
+
+
+2025-09-30 17:13:22 - OTP Request received
+POST data: Array
+(
+    [otp] => 270635
+)
+
+Session data: Array
+(
+    [email] => trinidadjonhelmark123@gmail.com
+    [user_id] => 27
+    [role] => voter
+    [authenticated] => 1
+    [login_time] => 1759242732
+    [otp] => 270635
+    [otp_expiry] => 1759245415
+)
+
+

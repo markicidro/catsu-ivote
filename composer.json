@@ -1,0 +1,8 @@
+{
+    "name": "ivote/campus-voting",
+    "description": "iVote Campus E-Voting System",
+    "type": "project",
+    "require": {
+        "phpmailer/phpmailer": "^6.9"
+    }
+}
