@@ -1,12 +1,14 @@
 <?php
 //admin side
 
+// Ensure session configuration is set before starting the session
+ini_set('session.cookie_lifetime', 3600); // Set session cookie lifetime to 1 hour
+ini_set('session.gc_maxlifetime', 3600); // Set session garbage collection lifetime
+session_set_cookie_params(3600); // Ensure cookie persists for 1 hour
 session_start();
 
 date_default_timezone_set('Asia/Manila'); // Set your timezone
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     header('Location: home.php');

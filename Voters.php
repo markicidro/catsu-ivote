@@ -1,22 +1,12 @@
 <?php
+ini_set('session.cookie_lifetime', 3600); // Set session cookie lifetime to 1 hour
+ini_set('session.gc_maxlifetime', 3600); // Set session garbage collection lifetime
+session_set_cookie_params(3600); // Ensure cookie persists for 1 hour
 session_start();
 
-// Debug session save path
-if (!is_writable(session_save_path())) {
-    error_log('Session save path is not writable: ' . session_save_path());
-}
-
-// Debug session variables
-error_log("Session data on page load: " . json_encode($_SESSION));
-
 date_default_timezone_set('Asia/Manila');
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'voter') {
-    error_log("Redirecting to home.php: user_id=" . ($_SESSION['user_id'] ?? 'not set') . ", role=" . ($_SESSION['role'] ?? 'not set'));
-    $_SESSION['redirect_to'] = $_SERVER['REQUEST_URI'];
     header('Location: home.php');
     exit;
 }
