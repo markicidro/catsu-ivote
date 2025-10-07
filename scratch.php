@@ -1,6 +1,5 @@
+```php
 <?php
-//admin side
-
 // Ensure session configuration is set before starting the session
 ini_set('session.cookie_lifetime', 3600); // Set session cookie lifetime to 1 hour
 ini_set('session.gc_maxlifetime', 3600); // Set session garbage collection lifetime
@@ -9,11 +8,11 @@ session_start();
 
 date_default_timezone_set('Asia/Manila'); // Set your timezone
 
-
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'commissioner') {
     header('Location: home.php');
     exit;
 }
+
 $servername = "localhost";
 $username = "root";
 $password = "";
@@ -30,13 +29,13 @@ if (isset($_POST['addUser'])) {
     $student_id = $_POST['student_id'];
     $password = password_hash($_POST['password'], PASSWORD_DEFAULT); // Hash password
     $role = $_POST['role'];
-    $college = $_POST['college'];
+    $college = $_POST['college'] ?? 'CICT'; // Add college field, default to CICT
 
     $stmt = $conn->prepare("INSERT INTO users (email, student_id, password, role, college) VALUES (?, ?, ?, ?, ?)");
     if (!$stmt) {
         die("Prepare failed: " . $conn->error);
     }
-    $stmt->bind_param("sssss", $email, $student_id, $password, $role,$college);
+    $stmt->bind_param("sssss", $email, $student_id, $password, $role, $college);
     if (!$stmt->execute()) {
         $message = "Error adding user: " . $stmt->error;
         $messageType = "error";
@@ -53,13 +52,13 @@ if (isset($_POST['editUser'])) {
     $student_id = $_POST['student_id'];
     $password = password_hash($_POST['password'], PASSWORD_DEFAULT); // Hash password
     $role = $_POST['role'];
-    $college = $_POST['college'];
+    $college = $_POST['college'] ?? 'CICT'; // Add college field
 
-    $stmt = $conn->prepare("UPDATE users SET email=?, student_id=?, password=?, role=?, college=?, WHERE id=?");
+    $stmt = $conn->prepare("UPDATE users SET email=?, student_id=?, password=?, role=?, college=? WHERE id=?");
     if (!$stmt) {
         die("Prepare failed: " . $conn->error);
     }
-    $stmt->bind_param("sssssi", $email, $student_id, $password, $role,$college, $id);
+    $stmt->bind_param("sssssi", $email, $student_id, $password, $role, $college, $id);
     if (!$stmt->execute()) {
         $message = "Error updating user: " . $stmt->error;
         $messageType = "error";
@@ -87,8 +86,6 @@ if (isset($_POST['deleteUser'])) {
     $stmt->close();
 }
 
-// ------------------- FILING MANAGEMENT -------------------
-
 // Filing Management
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['filing_id'], $_POST['type'])) {
     $action = $_POST['action'];
@@ -115,8 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['fil
     }
 }
 
-// ------------------- FETCH FILINGS -------------------
-
+// Fetch Filings
 $mainFilings = [];
 $result = $conn->query("SELECT * FROM main_org_candidates ORDER BY filing_date DESC");
 if (!$result) {
@@ -133,8 +129,6 @@ if (!$result) {
 $subFilings = $result->fetch_all(MYSQLI_ASSOC);
 $result->free();
 
-// ------------------- VOTING SCHEDULE MANAGEMENT -------------------
-
 // Voting Schedule Management
 if (isset($_POST['updateVotingSchedule'])) {
     $voting_status = $_POST['voting_status'];
@@ -142,33 +136,54 @@ if (isset($_POST['updateVotingSchedule'])) {
     $end_date = $_POST['end_date'] ?? null;
     $description = $_POST['description'] ?? '';
     
-    if ($start_date && $end_date) {
-        $start = new DateTime($start_date);
-        $end = new DateTime($end_date);
-        if ($end <= $start) {
-            $message = "Error: End date must be after start date.";
+    if ($voting_status === 'open') {
+        if (!$start_date || !$end_date) {
+            $message = "Error: Start and end dates are required for open status.";
             $messageType = "error";
         } else {
-            $checkStmt = $conn->query("SELECT id FROM voting_schedule LIMIT 1");
-            if ($checkStmt->num_rows > 0) {
-                $stmt = $conn->prepare("UPDATE voting_schedule SET status=?, start_date=?, end_date=?, description=?, updated_at=NOW() WHERE id=(SELECT id FROM (SELECT id FROM voting_schedule LIMIT 1) as temp)");
-                $stmt->bind_param("ssss", $voting_status, $start_date, $end_date, $description);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO voting_schedule (status, start_date, end_date, description, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())");
-                $stmt->bind_param("ssss", $voting_status, $start_date, $end_date, $description);
-            }
-            if ($stmt->execute()) {
-                $message = "Voting schedule updated successfully!";
-                $messageType = "success";
-            } else {
-                $message = "Error updating schedule: " . $stmt->error;
+            $start = new DateTime($start_date);
+            $end = new DateTime($end_date);
+            if ($end <= $start) {
+                $message = "Error: End date must be after start date.";
                 $messageType = "error";
+            } else {
+                $checkStmt = $conn->query("SELECT id FROM voting_schedule LIMIT 1");
+                if ($checkStmt->num_rows > 0) {
+                    $stmt = $conn->prepare("UPDATE voting_schedule SET status=?, start_date=?, end_date=?, description=?, updated_at=NOW() WHERE id=(SELECT id FROM (SELECT id FROM voting_schedule LIMIT 1) as temp)");
+                    $stmt->bind_param("ssss", $voting_status, $start_date, $end_date, $description);
+                } else {
+                    $stmt = $conn->prepare("INSERT INTO voting_schedule (status, start_date, end_date, description, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())");
+                    $stmt->bind_param("ssss", $voting_status, $start_date, $end_date, $description);
+                }
+                if ($stmt->execute()) {
+                    $message = "Voting schedule updated successfully!";
+                    $messageType = "success";
+                } else {
+                    $message = "Error updating schedule: " . $stmt->error;
+                    $messageType = "error";
+                }
+                $stmt->close();
             }
-            $stmt->close();
         }
     } else {
-        $message = "Error: Start and end dates are required.";
-        $messageType = "error";
+        $start_date = null;
+        $end_date = null;
+        $checkStmt = $conn->query("SELECT id FROM voting_schedule LIMIT 1");
+        if ($checkStmt->num_rows > 0) {
+            $stmt = $conn->prepare("UPDATE voting_schedule SET status=?, start_date=?, end_date=?, description=?, updated_at=NOW() WHERE id=(SELECT id FROM (SELECT id FROM voting_schedule LIMIT 1) as temp)");
+            $stmt->bind_param("ssss", $voting_status, $start_date, $end_date, $description);
+        } else {
+            $stmt = $conn->prepare("INSERT INTO voting_schedule (status, start_date, end_date, description, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())");
+            $stmt->bind_param("ssss", $voting_status, $start_date, $end_date, $description);
+        }
+        if ($stmt->execute()) {
+            $message = "Voting schedule updated successfully!";
+            $messageType = "success";
+        } else {
+            $message = "Error updating schedule: " . $stmt->error;
+            $messageType = "error";
+        }
+        $stmt->close();
     }
 }
 
@@ -204,7 +219,7 @@ function uploadFile($fileInputName, $targetDir) {
     return $filename;
 }
 
-// ------------------- FETCH VOTERS WITH VOTE STATUS -------------------
+// Fetch Voters with Vote Status
 $voters = [];
 $sql = "SELECT u.id, u.email, u.student_id, u.role, u.college, v.vote_date as voted_at 
         FROM users u 
@@ -219,7 +234,7 @@ if ($result) {
     die("Voters query failed: " . $conn->error);
 }
 
-// ------------------- DASHBOARD DATA -------------------
+// Dashboard Data
 $totalVoters = 0;
 $votersResult = $conn->query("SELECT COUNT(*) as count FROM users WHERE role = 'voter'");
 if ($votersResult) {
@@ -243,9 +258,7 @@ if ($votesResult) {
     $votesResult->free();
 }
 
-// ------------------- REPORTING MODULE -------------------
-
-// Handle report generation
+// Reporting Module
 $reportData = [];
 $reportType = '';
 $reportTitle = '';
@@ -260,6 +273,7 @@ if (isset($_POST['generateReport'])) {
                          u.id, 
                          u.student_id, 
                          u.email, 
+                         u.college,
                          CASE WHEN v.vote_date IS NOT NULL THEN 'Voted' ELSE 'Not Voted' END as vote_status,
                          v.vote_date as voted_at
                          FROM users u 
@@ -270,7 +284,6 @@ if (isset($_POST['generateReport'])) {
             
         case 'candidates_summary':
             $reportTitle = 'Candidates Summary Report';
-            // Updated to use 'organization' field for both tables
             $sql = "SELECT 'Main Organization' as org_type, id, 
                            CONCAT(last_name, ', ', first_name, ' ', middle_name) as full_name,
                            organization as organization, position, status, filing_date
@@ -308,7 +321,6 @@ if (isset($_POST['generateReport'])) {
             
         case 'complete_election':
             $reportTitle = 'Complete Election Report';
-            // This will be a comprehensive report combining multiple data sources
             $reportData = generateCompleteElectionReport($conn);
             break;
     }
@@ -325,7 +337,6 @@ if (isset($_POST['generateReport'])) {
 function generateCompleteElectionReport($conn) {
     $data = [];
     
-    // Voters statistics
     $votersResult = $conn->query("SELECT 
     COUNT(*) as total_voters,
     COUNT(CASE WHEN v.vote_date IS NOT NULL THEN 1 END) as voted_count
@@ -334,18 +345,15 @@ function generateCompleteElectionReport($conn) {
     WHERE u.role = 'voter'");
     $data['voters_stats'] = $votersResult->fetch_assoc();
     
-    // Candidates statistics
     $mainCandidatesResult = $conn->query("SELECT status, COUNT(*) as count FROM main_org_candidates GROUP BY status");
     $subCandidatesResult = $conn->query("SELECT status, COUNT(*) as count FROM sub_org_candidates GROUP BY status");
     $data['main_candidates'] = $mainCandidatesResult->fetch_all(MYSQLI_ASSOC);
     $data['sub_candidates'] = $subCandidatesResult->fetch_all(MYSQLI_ASSOC);
     
-    // Voting schedule
     $scheduleResult = $conn->query("SELECT * FROM voting_schedule ORDER BY updated_at DESC LIMIT 1");
     $data['schedule'] = $scheduleResult ? $scheduleResult->fetch_assoc() : null;
     
-    // Daily voting activity
-   $activityResult = $conn->query("SELECT 
+    $activityResult = $conn->query("SELECT 
     DATE(vote_date) as vote_date, 
     COUNT(*) as votes_count 
     FROM votes 
@@ -379,11 +387,9 @@ function exportToCSV($data, $type, $title) {
     $output = fopen('php://output', 'w');
     
     if ($type === 'complete_election') {
-        // Handle complex report structure
         fputcsv($output, ['COMPLETE ELECTION REPORT - ' . date('Y-m-d H:i:s')]);
         fputcsv($output, []);
         
-        // Voters statistics
         fputcsv($output, ['VOTERS STATISTICS']);
         fputcsv($output, ['Total Registered Voters', $data['voters_stats']['total_voters']]);
         fputcsv($output, ['Voters Who Voted', $data['voters_stats']['voted_count']]);
@@ -392,7 +398,6 @@ function exportToCSV($data, $type, $title) {
         }
         fputcsv($output, []);
     } else {
-        // Handle regular tabular data
         if (!empty($data)) {
             fputcsv($output, array_keys($data[0]));
             foreach ($data as $row) {
@@ -406,7 +411,6 @@ function exportToCSV($data, $type, $title) {
 }
 
 function exportToExcel($data, $type, $title) {
-    // For simplicity, we'll export as CSV with .xlsx extension
     $filename = sanitizeFilename($title) . '_' . date('Y-m-d_H-i-s') . '.xlsx';
     
     header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -426,7 +430,6 @@ if (!empty($reportData)) {
     $_SESSION['report_title'] = $reportTitle;
 }
 
-// Initialize message variable if not set
 if (!isset($message)) {
     $message = '';
 }
@@ -434,21 +437,19 @@ if (!isset($message)) {
 
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8">
+    <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> CATSU iVote</title>
+    <title>CATSU iVote</title>
     <link rel="stylesheet" href="assets/css/style.css">
-     <link rel="stylesheet" href="assets/css/admin.css">
+    <link rel="stylesheet" href="assets/css/admin.css">
 </head>
-
 <body>
     <div class="container">
         <div class="navigation">
             <ul>
-                <li><a href="#"><span class="icon"><img src="catsu.png" alt="CATSU-ivote Logo" style="width:24px; height:24px;"></span><span class="title">CATSU-ivote Admin</span></a></li>
+                <li><a href="#"><span class="icon"><img src="assets/imgs/logo.png" alt="CATSU-ivote Logo" style="width:24px; height:24px;"></span><span class="title">CATSU-ivote Admin</span></a></li>
                 <li><a href="#" id="dashboardBtn"><span class="icon"><ion-icon name="home-outline"></ion-icon></span><span class="title">Dashboard</span></a></li>
                 <li><a href="#" id="userMgmtBtn"><span class="icon"><ion-icon name="people-outline"></ion-icon></span><span class="title">Users Management</span></a></li>
                 <li><a href="#" id="filingBtn"><span class="icon"><ion-icon name="file-tray-full-outline"></ion-icon></span><span class="title">Filing Management</span></a></li>
@@ -463,72 +464,67 @@ if (!isset($message)) {
             <div class="topbar">
                 <div class="toggle"><ion-icon name="menu-outline"></ion-icon></div>
                 <div class="search"><label><input type="text" placeholder="Search here"><ion-icon name="search-outline"></ion-icon></label></div>
-                <div class="user"><img src="catsu.png" alt="User  Profile"></div>
+                <div class="user"><img src="catsu.png" alt="User Profile"></div>
             </div>
 
-           <div id="dashboardSection">
-    <div class="cardBox">
-        <div class="card">
-            <div>
-                <div class="numbers"><?= number_format($totalVoters) ?></div>
-                <div class="cardName">Total registered voters</div>
-            </div>
-            <div class="iconBx"><ion-icon name="people-outline"></ion-icon></div>
-        </div>
-        <div class="card">
-            <div>
-                <div class="numbers"><?= number_format($totalCandidates) ?></div>
-                <div class="cardName">Total of candidates</div>
-            </div>
-            <div class="iconBx"><ion-icon name="people-outline"></ion-icon></div>
-        </div>
-        <div class="card">
-            <div>
-                <div class="numbers"><?= number_format($studentsVoted) ?></div>
-                <div class="cardName">Students who voted</div>
-            </div>
-            <div class="iconBx"><ion-icon name="people-outline"></ion-icon></div>
-        </div>
-        <div class="card">
-            <div>
-                <div class="numbers"><?= $totalVoters > 0 ? round(($studentsVoted / $totalVoters) * 100, 1) . '%' : '0%' ?></div>
-                <div class="cardName">Voting Percentage</div>
-            </div>
-            <div class="iconBx"><ion-icon name="analytics-outline"></ion-icon></div>
-        </div>
-    </div>
+            <div id="dashboardSection">
+                <div class="cardBox">
+                    <div class="card">
+                        <div>
+                            <div class="numbers"><?= number_format($totalVoters) ?></div>
+                            <div class="cardName">Total registered voters</div>
+                        </div>
+                        <div class="iconBx"><ion-icon name="people-outline"></ion-icon></div>
+                    </div>
+                    <div class="card">
+                        <div>
+                            <div class="numbers"><?= number_format($totalCandidates) ?></div>
+                            <div class="cardName">Total of candidates</div>
+                        </div>
+                        <div class="iconBx"><ion-icon name="people-outline"></ion-icon></div>
+                    </div>
+                    <div class="card">
+                        <div>
+                            <div class="numbers"><?= number_format($studentsVoted) ?></div>
+                            <div class="cardName">Students who voted</div>
+                        </div>
+                        <div class="iconBx"><ion-icon name="people-outline"></ion-icon></div>
+                    </div>
+                    <div class="card">
+                        <div>
+                            <div class="numbers"><?= $totalVoters > 0 ? round(($studentsVoted / $totalVoters) * 100, 1) . '%' : '0%' ?></div>
+                            <div class="cardName">Voting Percentage</div>
+                        </div>
+                        <div class="iconBx"><ion-icon name="analytics-outline"></ion-icon></div>
+                    </div>
+                </div>
 
-    <!-- Vote Tally Section -->
-    <div style="max-width: 800px; margin: 40px auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-        <h2 style="text-align: center; color: #4f46e5; margin-bottom: 30px;">Vote Tally by Organization</h2>
-        
-        <!-- Organization Selector -->
-        <div style="max-width: 400px; margin: 0 auto 30px;">
-            <label for="adminOrgSelect" style="font-weight: bold; font-size: 1.1rem; display: block; margin-bottom: 10px;">Select Organization:</label>
-            <select id="adminOrgSelect" style="width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 1rem;">
-                <option value="">-- Select Organization --</option>
-                <optgroup label="Main Organizations">
-                    <option value="USC">USC (University Student Council)</option>
-                    <option value="CSC">CSC (College Student Council)</option>
-                </optgroup>
-                <optgroup label="Sub Organizations">
-                    <option value="ACCESS">ACCESS</option>
-                    <option value="ASITS">ASITS</option>
-                    <option value="BSEMC PromtPT">BSEMC PromtPT</option>
-                    <option value="ISSO">ISSO</option>
-                    <option value="LISAUX">LISAUX</option>
-                    <option value="CICT-womens club">CICT-womens club</option>
-                </optgroup>
-            </select>
-        </div>
+                <div style="max-width: 800px; margin: 40px auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                    <h2 style="text-align: center; margin-bottom: 30px; color: #1f2937;">Vote Tally by Organization</h2>
+                    <div style="max-width: 400px; margin: 0 auto 30px;">
+                        <label for="adminOrgSelect" style="font-weight: bold; font-size: 1.1rem; display: block; margin-bottom: 10px;">Select Organization:</label>
+                        <select id="adminOrgSelect" style="width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 1rem;">
+                            <option value="">-- Select Organization --</option>
+                            <optgroup label="Main Organizations">
+                                <option value="USC">USC (University Student Council)</option>
+                                <option value="CSC">CSC (College Student Council)</option>
+                            </optgroup>
+                            <optgroup label="Sub Organizations">
+                                <option value="ACCESS">ACCESS</option>
+                                <option value="ASITS">ASITS</option>
+                                <option value="BSEMC PromtPT">BSEMC PromtPT</option>
+                                <option value="ISSO">ISSO</option>
+                                <option value="LISAUX">LISAUX</option>
+                                <option value="CICT-womens club">CICT-womens club</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div id="adminTallyContainer">
+                        <p style="text-align: center; color: #6b7280; font-style: italic;">Select an organization to view vote tally</p>
+                    </div>
+                </div>
+            </div>
 
-        <!-- Candidates Tally Container -->
-        <div id="adminTallyContainer">
-            <p style="text-align: center; color: #6b7280; font-style: italic;">Select an organization to view vote tally</p>
-        </div>
-    </div>
-</div>
-            <!-- Users Management Section -->
             <div class="details" id="userManagementSection" style="display:none;">
                 <div class="recentOrders">
                     <div class="cardHeader">
@@ -536,7 +532,7 @@ if (!isset($message)) {
                         <button class="btn" onclick="openModal('addModal')">Add User</button>
                     </div>
                     
-                    <?php if ($message && (isset($_POST['addUser ']) || isset($_POST['editUser ']) || isset($_POST['deleteUser ']))): ?>
+                    <?php if ($message && (isset($_POST['addUser']) || isset($_POST['editUser']) || isset($_POST['deleteUser']))): ?>
                         <div class="message"><?= htmlspecialchars($message) ?></div>
                     <?php endif; ?>
                     
@@ -556,16 +552,16 @@ if (!isset($message)) {
                                             <td>{$row['role']}</td>
                                             <td>{$row['college']}</td>
                                             <td>
-                                                <button class='action-btn edit' onclick=\"editUser ({$row['id']}, '{$row['email']}', '{$row['student_id']}', '{$row['password']}', '{$row['role']}')\">Edit</button>
+                                                <button class='action-btn edit' onclick=\"editUser({$row['id']}, '{$row['email']}', '{$row['student_id']}', '{$row['password']}', '{$row['role']}', '{$row['college']}')\">Edit</button>
                                                 <form method='POST' style='display:inline;' onsubmit=\"return confirm('Are you sure you want to delete this user?');\">
                                                     <input type='hidden' name='id' value='{$row['id']}'/>
-                                                    <button class='action-btn delete' type='submit' name='deleteUser '>Delete</button>
+                                                    <button class='action-btn delete' type='submit' name='deleteUser'>Delete</button>
                                                 </form>
                                             </td>
                                           </tr>";
                                 }
                             } else {
-                                echo "<tr><td colspan='6'>No users found</td></tr>";
+                                echo "<tr><td colspan='7'>No users found</td></tr>";
                             }
                             ?>
                         </tbody>
@@ -573,7 +569,6 @@ if (!isset($message)) {
                 </div>
             </div>
 
-            <!-- Filing Management Section -->
             <div class="details" id="filingSection" style="display:none;">
                 <div class="recentOrders">
                     <div class="cardHeader"><h2>Filing Management</h2></div>
@@ -582,7 +577,6 @@ if (!isset($message)) {
                         <div class="message"><?= htmlspecialchars($message) ?></div>
                     <?php endif; ?>
 
-                    <!-- Main Organization Filings -->
                     <h3>Main Organization Filings</h3>
                     <?php if (count($mainFilings) === 0): ?>
                         <p>No filings found.</p>
@@ -599,7 +593,6 @@ if (!isset($message)) {
                                     <tr>
                                         <td><?= htmlspecialchars($filing['id'] ?? '') ?></td>
                                         <td><?= htmlspecialchars(($filing['last_name'] ?? '') . ', ' . ($filing['first_name'] ?? '') . ' ' . ($filing['middle_name'] ?? '')) ?></td>
-                                        <!-- Updated: Use 'organization' field instead of 'main_org' -->
                                         <td><?= htmlspecialchars($filing['organization'] ?? '') ?></td>
                                         <td><?= htmlspecialchars($filing['position'] ?? '') ?></td>
                                         <td><span class="status <?= htmlspecialchars($filing['status'] ?? '') ?>"><?= htmlspecialchars($filing['status'] ?? '') ?></span></td>
@@ -627,7 +620,6 @@ if (!isset($message)) {
                         </table>
                     <?php endif; ?>
 
-                    <!-- Sub Organization Filings -->
                     <h3>Sub Organization Filings</h3>
                     <?php if (count($subFilings) === 0): ?>
                         <p>No filings found.</p>
@@ -644,12 +636,11 @@ if (!isset($message)) {
                                     <tr>
                                         <td><?= htmlspecialchars($filing['id'] ?? '') ?></td>
                                         <td><?= htmlspecialchars(($filing['last_name'] ?? '') . ', ' . ($filing['first_name'] ?? '') . ' ' . ($filing['middle_name'] ?? '')) ?></td>
-                                        <!-- Updated: Use 'organization' field instead of 'sub_org', and header to "Organization" for consistency -->
                                         <td><?= htmlspecialchars($filing['organization'] ?? '') ?></td>
                                         <td><?= htmlspecialchars($filing['year'] ?? '') ?></td>
                                         <td><span class="status <?= htmlspecialchars($filing['status'] ?? '') ?>"><?= htmlspecialchars($filing['status'] ?? '') ?></span></td>
                                         <td>
-                                           <button class="btn" 
+                                            <button class="btn" 
                                                 onclick="openPreviewModal(
                                                     '<?= $filing['id'] ?? '' ?>',
                                                     '<?= htmlspecialchars(($filing['last_name'] ?? '') . ', ' . ($filing['first_name'] ?? '') . ' ' . ($filing['middle_name'] ?? '')) ?>',
@@ -670,7 +661,6 @@ if (!isset($message)) {
                 </div>
             </div>
 
-            <!-- Voters Section -->
             <div class="details" id="votersSection" style="display:none;">
                 <div class="recentOrders">
                     <div class="cardHeader">
@@ -683,21 +673,15 @@ if (!isset($message)) {
                         <select id="collegeFilter" style="width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 1rem;">
                             <option value="">All Colleges</option>
                             <option value="CICT">CICT (College of Information and Communications Technology)</option>
-                           <option value="CBA">CBA (College of Business and Accountancy)</option>
-                            <option value="CHS">CHS (College of Health and Sciences)</option>
-                            <option value="CEA">CEA (College of Engineering and Architecture)</option>
-                            <option value="COS">COS (College of Science)</option>
-                            <option value="CHUMSS">CHUMSS (College of Humanities and Social Sciences)</option>
-                                <option value="CAF">CAF (College of Agriculture and Fisheries)</option>
-                                <option value="CIT">CIT (College of Information Technology)</option>
-                                <option value="COED">COED (College of Education)</option>
+                            <!-- Add more colleges as needed -->
+                            <!-- Example: <option value="COE">COE (College of Engineering)</option> -->
                         </select>
                     </div>
-                    
+
                     <?php if (count($voters) === 0): ?>
                         <p style="text-align: center; color: #6b7280; font-style: italic; padding: 20px;">No voters found.</p>
                     <?php else: ?>
-                        <table>
+                        <table id="votersTable">
                             <thead>
                                 <tr>
                                     <th>ID</th>
@@ -715,7 +699,7 @@ if (!isset($message)) {
                                         $statusClass = !empty($voter['voted_at']) ? 'voted' : 'not-voted';
                                         $votedAt = !empty($voter['voted_at']) ? date('M j, Y g:i A', strtotime($voter['voted_at'])) : 'N/A';
                                     ?>
-                                    <tr>
+                                    <tr data-college="<?= htmlspecialchars($voter['college']) ?>">
                                         <td><?= htmlspecialchars($voter['id']) ?></td>
                                         <td><?= htmlspecialchars($voter['student_id']) ?></td>
                                         <td><?= htmlspecialchars($voter['email']) ?></td>
@@ -744,15 +728,14 @@ if (!isset($message)) {
                         </table>
                         
                         <div id="votersSummary" style="margin-top: 20px; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #4f46e5;">
-                            <strong>Total Voters:</strong> <?= count($voters) ?><br>
-                            <strong>Voted:</strong> <?= count(array_filter($voters, function($v) { return !empty($v['voted_at']); })) ?><br>
-                            <strong>Not Voted:</strong> <?= count($voters) - count(array_filter($voters, function($v) { return !empty($v['voted_at']); })) ?>
+                            <strong>Total Voters:</strong> <span id="totalVoters"><?= count($voters) ?></span><br>
+                            <strong>Voted:</strong> <span id="votedCount"><?= count(array_filter($voters, function($v) { return !empty($v['voted_at']); })) ?></span><br>
+                            <strong>Not Voted:</strong> <span id="notVotedCount"><?= count($voters) - count(array_filter($voters, function($v) { return !empty($v['voted_at']); })) ?></span>
                         </div>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Voting Schedule Management Section -->
             <div class="details" id="votingScheduleSection" style="display:none;">
                 <div class="recentOrders">
                     <div class="cardHeader"><h2>Voting Schedule Management</h2></div>
@@ -761,7 +744,6 @@ if (!isset($message)) {
                         <div class="message"><?= htmlspecialchars($message) ?></div>
                     <?php endif; ?>
 
-                    <!-- Current Voting Status -->
                     <div class="voting-status-card">
                         <h3>Current Voting Status</h3>
                         <?php if ($votingSchedule): ?>
@@ -789,7 +771,6 @@ if (!isset($message)) {
                         <?php endif; ?>
                     </div>
 
-                    <!-- Update Voting Schedule Form -->
                     <div class="schedule-form-container">
                         <h3>Update Voting Schedule</h3>
                         <form method="POST" class="schedule-form">
@@ -802,7 +783,6 @@ if (!isset($message)) {
                                     </select>
                                 </div>
                             </div>
-
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="start_date"><strong>Start Date & Time:</strong></label>
@@ -815,14 +795,12 @@ if (!isset($message)) {
                                            value="<?= $votingSchedule ? date('Y-m-d\TH:i', strtotime($votingSchedule['end_date'])) : '' ?>" required>
                                 </div>
                             </div>
-
                             <div class="form-row">
                                 <div class="form-group full-width">
                                     <label for="description"><strong>Description/Notes:</strong></label>
                                     <textarea name="description" id="description" rows="3" placeholder="Optional description or notes about this voting period"><?= $votingSchedule ? htmlspecialchars($votingSchedule['description']) : '' ?></textarea>
                                 </div>
                             </div>
-
                             <div class="form-actions">
                                 <button type="submit" name="updateVotingSchedule" class="btn update-btn">Update Voting Schedule</button>
                                 <?php if ($votingSchedule && $votingSchedule['status'] === 'open'): ?>
@@ -832,22 +810,18 @@ if (!isset($message)) {
                         </form>
                     </div>
 
-                    <!-- Quick Actions -->
                     <div class="quick-actions" style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 12px; padding: 20px;">
                         <h3 style="color: #92400e; margin-bottom: 15px; font-size: 1.1rem;">Quick Actions</h3>
                         <div class="action-buttons" style="display: flex; gap: 15px; flex-wrap: wrap;">
                             <form method="POST" style="display:inline;">
                                 <input type="hidden" name="voting_status" value="open">
                                 <input type="hidden" name="start_date" value="<?= date('Y-m-d\TH:i') ?>">
-                                <input type="hidden" name="end_date" value="<?= date('Y-m-d\TH:i', strtotime('+8 hours')) ?>">
-                                <input type="hidden" name="description" value="Quick open for 8 hours">
+                                <input type="hidden" name="end_date" value="<?= date('Y-m-d\TH:i', strtotime('+4 hours')) ?>">
+                                <input type="hidden" name="description" value="Quick open for 4 hours">
                                 <button type="submit" name="updateVotingSchedule" class="btn" style="background-color: #059669;">Open Voting Now (4 hours)</button>
                             </form>
-                            
                             <form method="POST" style="display:inline;">
                                 <input type="hidden" name="voting_status" value="closed">
-                                <input type="hidden" name="start_date" value="<?= date('Y-m-d\TH:i') ?>">
-                                <input type="hidden" name="end_date" value="<?= date('Y-m-d\TH:i') ?>">
                                 <input type="hidden" name="description" value="Voting closed by admin">
                                 <button type="submit" name="updateVotingSchedule" class="btn" style="background-color: #dc2626;">Close Voting Now</button>
                             </form>
@@ -856,7 +830,6 @@ if (!isset($message)) {
                 </div>
             </div>
 
-            <!-- Reporting Module Section -->
             <div class="details" id="reportingSection" style="display:none;">
                 <div class="recentOrders">
                     <div class="cardHeader">
@@ -891,7 +864,6 @@ if (!isset($message)) {
                         </form>
                     </div>
 
-                    <!-- Report Display -->
                     <?php if (!empty($reportData) && $reportType !== 'complete_election'): ?>
                     <div class="report-content printable-content">
                         <div class="report-header">
@@ -907,6 +879,7 @@ if (!isset($message)) {
                                         <tr>
                                             <th>Student ID</th>
                                             <th>Email</th>
+                                            <th>College</th>
                                             <th>Vote Status</th>
                                             <th>Voted At</th>
                                         </tr>
@@ -916,6 +889,7 @@ if (!isset($message)) {
                                         <tr>
                                             <td><?= htmlspecialchars($row['student_id']) ?></td>
                                             <td><?= htmlspecialchars($row['email']) ?></td>
+                                            <td><?= htmlspecialchars($row['college']) ?></td>
                                             <td>
                                                 <span class="vote-status <?= $row['vote_status'] === 'Voted' ? 'voted' : 'not-voted' ?>">
                                                     <?= $row['vote_status'] ?>
@@ -1010,7 +984,6 @@ if (!isset($message)) {
                     </div>
                     
                     <?php elseif (!empty($reportData) && $reportType === 'complete_election'): ?>
-                    <!-- Complete Election Report -->
                     <div class="report-content printable-content">
                         <div class="report-header">
                             <h2>Complete Election Report</h2>
@@ -1019,7 +992,6 @@ if (!isset($message)) {
                         </div>
                         
                         <div class="report-sections">
-                            <!-- Voters Statistics Section -->
                             <div class="report-section">
                                 <h3>1. Voters Statistics</h3>
                                 <div class="stats-grid">
@@ -1040,7 +1012,6 @@ if (!isset($message)) {
                                 </div>
                             </div>
 
-                            <!-- Candidates Statistics Section -->
                             <div class="report-section">
                                 <h3>2. Candidates Statistics</h3>
                                 <div class="candidates-stats">
@@ -1072,7 +1043,6 @@ if (!isset($message)) {
                                 </div>
                             </div>
 
-                            <!-- Voting Schedule Section -->
                             <?php if ($reportData['schedule']): ?>
                             <div class="report-section">
                                 <h3>3. Voting Schedule</h3>
@@ -1085,7 +1055,6 @@ if (!isset($message)) {
                             </div>
                             <?php endif; ?>
 
-                            <!-- Daily Voting Activity Section -->
                             <?php if (!empty($reportData['daily_activity'])): ?>
                             <div class="report-section">
                                 <h3>4. Daily Voting Activity</h3>
@@ -1119,427 +1088,329 @@ if (!isset($message)) {
                     <?php endif; ?>
                 </div>
             </div>
-        </div>
 
-        <!-- Add User Modal -->
-        <div id="addModal" class="modal">
-            <div class="modal-content">
-                <span class="close" onclick="closeModal('addModal')">&times;</span>
-                <h3>Add User</h3>
-                <form method="POST">
-                    <input type="email" name="email" placeholder="Email" required/>
-                    <input type="text" name="student_id" placeholder="Student ID" required/>
-                    <input type="text" name="password" placeholder="Password" required/>
-                    <select name="role" required>
-                        <option value="voter">Voter</option>
-                        <option value="admin">Admin</option>
-                        <option value="candidate">Candidate</option>
-                    </select>
-                    <select name="college" required>
-                    <option value="CICT">CICT (College of Information and Communications Technology)</option>
-                    </select>
-                    <button class="btn" type="submit" name="addUser  ">Save</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- Edit User Modal -->
-        <div id="editModal" class="modal">
-            <div class="modal-content">
-                <span class="close" onclick="closeModal('editModal')">&times;</span>
-                <h3>Edit User</h3>
-                <form method="POST">
-                    <input type="hidden" name="id" id="edit_id"/>
-                    <input type="email" name="email" id="edit_email" required/>
-                    <input type="text" name="student_id" id="edit_student_id" required/>
-                    <input type="text" name="password" id="edit_password" required/>
-                    <select name="role" id="edit_role" required>
-                        <option value="voter">Voter</option>
-                        <option value="admin">Admin</option>
-                        <option value="candidate">Candidate</option>
-                    </select>
-                    <select name="college" id="edit_college" required>
+            <div id="addModal" class="modal">
+                <div class="modal-content">
+                    <span class="close" onclick="closeModal('addModal')">&times;</span>
+                    <h3>Add User</h3>
+                    <form method="POST">
+                        <input type="email" name="email" placeholder="Email" required/>
+                        <input type="text" name="student_id" placeholder="Student ID" required/>
+                        <input type="text" name="password" placeholder="Password" required/>
+                        <select name="role" required>
+                            <option value="voter">Voter</option>
+                            <option value="admin">Admin</option>
+                            <option value="candidate">Candidate</option>
+                        </select>
+                        <select name="college" required>
                             <option value="CICT">CICT (College of Information and Communications Technology)</option>
-                    </select>
-                    <button class="btn" type="submit" name="editUser  ">Update</button>
-                </form>
+                            <!-- Add more colleges as needed -->
+                            <!-- Example: <option value="COE">COE (College of Engineering)</option> -->
+                        </select>
+                        <button class="btn" type="submit" name="addUser">Save</button>
+                    </form>
+                </div>
             </div>
-        </div>
 
-        <!-- Filing Preview Modal -->
-<div id="previewModal" class="modal">
-    <div class="modal-content" style="max-width: 800px; width: 90%; background: #fff; border-radius: 16px; padding: 0; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
-        <div style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 20px; position: relative;">
-            <span class="close" onclick="closeModal('previewModal')" style="position: absolute; top: 15px; right: 20px; color: white; font-size: 32px; font-weight: bold; cursor: pointer; transition: transform 0.2s;">&times;</span>
-            <h3 style="color: white; margin: 0; font-size: 1.5rem; font-weight: 600;">Candidate Filing Preview</h3>
-        </div>
-        
-        <div style="padding: 30px; max-height: 70vh; overflow-y: auto;">
-            <div id="previewContent"></div>
-            
-            <form method="post" id="previewForm" style="margin-top: 30px;">
-                <input type="hidden" name="filing_id" id="preview_filing_id">
-                <input type="hidden" name="type" id="preview_type">
-                <input type="hidden" name="action" id="preview_action">
-                
-                <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 2px solid #e2e8f0;">
-                    <label for="comment" style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 10px; font-size: 1rem;">
-                        <ion-icon name="chatbox-outline" style="vertical-align: middle; font-size: 1.2rem;"></ion-icon>
-                        Admin Comment:
-                    </label>
-                    <textarea 
-                        name="comment" 
-                        id="comment" 
-                        rows="5" 
-                        placeholder="Enter your comment, feedback, or reason for decision here..."
-                        style="width: 100%; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 0.95rem; font-family: inherit; resize: vertical; transition: all 0.3s ease; background: white;"
-                        onfocus="this.style.borderColor='#4f46e5'; this.style.boxShadow='0 0 0 3px rgba(79,70,229,0.1)';"
-                        onblur="this.style.borderColor='#cbd5e1'; this.style.boxShadow='none';"
-                    ></textarea>
-                    <p style="margin: 10px 0 0 0; color: #64748b; font-size: 0.85rem;">
-                        <ion-icon name="information-circle-outline" style="vertical-align: middle;"></ion-icon>
-                        This comment will be visible to the candidate.
-                    </p>
+            <div id="editModal" class="modal">
+                <div class="modal-content">
+                    <span class="close" onclick="closeModal('editModal')">&times;</span>
+                    <h3>Edit User</h3>
+                    <form method="POST">
+                        <input type="hidden" name="id" id="edit_id"/>
+                        <input type="email" name="email" id="edit_email" required/>
+                        <input type="text" name="student_id" id="edit_student_id" required/>
+                        <input type="text" name="password" id="edit_password" required/>
+                        <select name="role" id="edit_role" required>
+                            <option value="voter">Voter</option>
+                            <option value="admin">Admin</option>
+                            <option value="candidate">Candidate</option>
+                        </select>
+                        <select name="college" id="edit_college" required>
+                            <option value="CICT">CICT (College of Information and Communications Technology)</option>
+                            <!-- Add more colleges as needed -->
+                            <!-- Example: <option value="COE">COE (College of Engineering)</option> -->
+                        </select>
+                        <button class="btn" type="submit" name="editUser">Update</button>
+                    </form>
                 </div>
+            </div>
 
-                <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 25px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
-                    <button 
-                        type="submit" 
-                        class="accept" 
-                        onclick="setAction('accept')"
-                        style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px 30px; border: none; border-radius: 10px; font-weight: 600; font-size: 1rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(16,185,129,0.3);"
-                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(16,185,129,0.4)';"
-                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(16,185,129,0.3)';"
-                    >
-                        <ion-icon name="checkmark-circle" style="font-size: 1.3rem;"></ion-icon>
-                        Accept Application
-                    </button>
-                    <button 
-                        type="submit" 
-                        class="reject" 
-                        onclick="setAction('reject')"
-                        style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 12px 30px; border: none; border-radius: 10px; font-weight: 600; font-size: 1rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(239,68,68,0.3);"
-                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(239,68,68,0.4)';"
-                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(239,68,68,0.3)';"
-                    >
-                        <ion-icon name="close-circle" style="font-size: 1.3rem;"></ion-icon>
-                        Reject Application
-                    </button>
+            <div id="previewModal" class="modal">
+                <div class="modal-content" style="max-width: 800px; width: 90%; background: #fff; border-radius: 16px; padding: 0; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 20px; position: relative;">
+                        <span class="close" onclick="closeModal('previewModal')" style="position: absolute; top: 15px; right: 20px; color: white; font-size: 32px; font-weight: bold; cursor: pointer; transition: transform 0.2s;">&times;</span>
+                        <h3 style="color: white; margin: 0; font-size: 1.5rem; font-weight: 600;">Candidate Filing Preview</h3>
+                    </div>
+                    <div style="padding: 30px; max-height: 70vh; overflow-y: auto;">
+                        <div id="previewContent"></div>
+                        <form method="post" id="previewForm" style="margin-top: 30px;">
+                            <input type="hidden" name="filing_id" id="preview_filing_id">
+                            <input type="hidden" name="type" id="preview_type">
+                            <input type="hidden" name="action" id="preview_action">
+                            <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 2px solid #e2e8f0;">
+                                <label for="comment" style="display: block; font-weight: 600; color: #1e293b; margin-bottom: 10px; font-size: 1rem;">
+                                    <ion-icon name="chatbox-outline" style="vertical-align: middle; font-size: 1.2rem;"></ion-icon>
+                                    Admin Comment:
+                                </label>
+                                <textarea 
+                                    name="comment" 
+                                    id="comment" 
+                                    rows="5" 
+                                    placeholder="Enter your comment, feedback, or reason for decision here..."
+                                    style="width: 100%; padding: 15px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 0.95rem; font-family: inherit; resize: vertical; transition: all 0.3s ease; background: white;"
+                                    onfocus="this.style.borderColor='#4f46e5'; this.style.boxShadow='0 0 0 3px rgba(79,70,229,0.1)';"
+                                    onblur="this.style.borderColor='#cbd5e1'; this.style.boxShadow='none';"
+                                ></textarea>
+                                <p style="margin: 10px 0 0 0; color: #64748b; font-size: 0.85rem;">
+                                    <ion-icon name="information-circle-outline" style="vertical-align: middle;"></ion-icon>
+                                    This comment will be visible to the candidate.
+                                </p>
+                            </div>
+                            <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 25px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+                                <button 
+                                    type="submit" 
+                                    class="accept" 
+                                    onclick="setAction('accept')"
+                                    style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px 30px; border: none; border-radius: 10px; font-weight: 600; font-size: 1rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(16,185,129,0.3);"
+                                    onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(16,185,129,0.4)';"
+                                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(16,185,129,0.3)';"
+                                >
+                                    <ion-icon name="checkmark-circle" style="font-size: 1.3rem;"></ion-icon>
+                                    Accept Application
+                                </button>
+                                <button 
+                                    type="submit" 
+                                    class="reject" 
+                                    onclick="setAction('reject')"
+                                    style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 12px 30px; border: none; border-radius: 10px; font-weight: 600; font-size: 1rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(239,68,68,0.3);"
+                                    onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(239,68,68,0.4)';"
+                                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(239,68,68,0.3)';"
+                                >
+                                    <ion-icon name="close-circle" style="font-size: 1.3rem;"></ion-icon>
+                                    Reject Application
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-            </form>
-        </div>
-    </div>
-</div>
+            </div>
 
-<!-- Image Preview Modal -->
-<div id="imagePreviewModal" class="modal" onclick="closeImagePreview(event)">
-    <div style="position: relative; max-width: 90%; max-height: 90vh; margin: 2% auto;">
-        <span onclick="closeModal('imagePreviewModal')" style="position: absolute; top: -40px; right: 0; color: white; font-size: 40px; font-weight: bold; cursor: pointer; z-index: 1001; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">&times;</span>
-        <img id="previewImage" src="" style="max-width: 100%; max-height: 85vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); display: block;">
-        <p id="imageFileName" style="color: white; text-align: center; margin-top: 15px; font-size: 1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);"></p>
-    </div>
-</div>
+            <div id="imagePreviewModal" class="modal" onclick="closeImagePreview(event)">
+                <div style="position: relative; max-width: 90%; max-height: 90vh; margin: 2% auto;">
+                    <span onclick="closeModal('imagePreviewModal')" style="position: absolute; top: -40px; right: 0; color: white; font-size: 40px; font-weight: bold; cursor: pointer; z-index: 1001; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">&times;</span>
+                    <img id="previewImage" src="" style="max-width: 100%; max-height: 85vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); display: block;">
+                    <p id="imageFileName" style="color: white; text-align: center; margin-top: 15px; font-size: 1.1rem; text-shadow: 0 2px 4px rgba(0,0,0,0.5);"></p>
+                </div>
+            </div>
 
-        <!-- Export Modal -->
-        <div id="exportModal" class="modal">
-            <div class="modal-content">
-                <span class="close" onclick="closeModal('exportModal')">&times;</span>
-                <h3>Export Report</h3>
-                <form method="POST">
-                    <div class="export-options">
-                        <p>Choose export format:</p>
-                        <div class="radio-group">
-                            <label><input type="radio" name="export_type" value="csv" checked> CSV (.csv)</label>
-                            <label><input type="radio" name="export_type" value="excel"> Excel (.xlsx)</label>
+            <div id="exportModal" class="modal">
+                <div class="modal-content">
+                    <span class="close" onclick="closeModal('exportModal')">&times;</span>
+                    <h3>Export Report</h3>
+                    <form method="POST">
+                        <div class="export-options">
+                            <p>Choose export format:</p>
+                            <div class="radio-group">
+                                <label><input type="radio" name="export_type" value="csv" checked> CSV (.csv)</label>
+                                <label><input type="radio" name="export_type" value="excel"> Excel (.xlsx)</label>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-actions">
-                        <button type="submit" name="exportReport" class="btn">Export</button>
-                        <button type="button" class="btn" onclick="closeModal('exportModal')">Cancel</button>
-                    </div>
-                </form>
+                        <div class="form-actions">
+                            <button type="submit" name="exportReport" class="btn">Export</button>
+                            <button type="button" class="btn" onclick="closeModal('exportModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-    </div>
 
-    <script src="assets/js/main.js"></script>
-    <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
-    <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
+        <script src="assets/js/main.js"></script>
+        <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
+        <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
 
-    <script>
-        const dashboardSection = document.getElementById("dashboardSection");
-        const userManagementSection = document.getElementById("userManagementSection");
-        const filingSection = document.getElementById("filingSection");
-        const votingScheduleSection = document.getElementById("votingScheduleSection");
-        const votersSection = document.getElementById("votersSection");
-        const reportingSection = document.getElementById("reportingSection");
+        <script>
+            const dashboardSection = document.getElementById("dashboardSection");
+            const userManagementSection = document.getElementById("userManagementSection");
+            const filingSection = document.getElementById("filingSection");
+            const votingScheduleSection = document.getElementById("votingScheduleSection");
+            const votersSection = document.getElementById("votersSection");
+            const reportingSection = document.getElementById("reportingSection");
 
-        document.getElementById("dashboardBtn").addEventListener("click", function(e){
-            e.preventDefault();
-            showSection("dashboard");
-        });
+            document.getElementById("dashboardBtn").addEventListener("click", function(e){
+                e.preventDefault();
+                showSection("dashboard");
+            });
 
-        document.getElementById("userMgmtBtn").addEventListener("click", function(e){
-            e.preventDefault();
-            showSection("userManagement");
-        });
+            document.getElementById("userMgmtBtn").addEventListener("click", function(e){
+                e.preventDefault();
+                showSection("userManagement");
+            });
 
-        document.getElementById("filingBtn").addEventListener("click", function(e){
-            e.preventDefault();
-            showSection("filing");
-        });
+            document.getElementById("filingBtn").addEventListener("click", function(e){
+                e.preventDefault();
+                showSection("filing");
+            });
 
-        document.getElementById("votersBtn").addEventListener("click", function(e) {
-            e.preventDefault();
-            showSection("voters");
-        });
+            document.getElementById("votersBtn").addEventListener("click", function(e) {
+                e.preventDefault();
+                showSection("voters");
+            });
 
-        document.getElementById("votingScheduleBtn").addEventListener("click", function(e){
-            e.preventDefault();
-            showSection("votingSchedule");
-        });
+            document.getElementById("votingScheduleBtn").addEventListener("click", function(e){
+                e.preventDefault();
+                showSection("votingSchedule");
+            });
 
-        document.getElementById("reportingBtn").addEventListener("click", function(e){
-            e.preventDefault();
-            showSection("reporting");
-        });
+            document.getElementById("reportingBtn").addEventListener("click", function(e){
+                e.preventDefault();
+                showSection("reporting");
+            });
 
-        function showSection(section) {
-            // Hide all sections
-            dashboardSection.style.display = "none";
-            userManagementSection.style.display = "none";
-            filingSection.style.display = "none";
-            votingScheduleSection.style.display = "none";
-            votersSection.style.display = "none";
-            reportingSection.style.display = "none";
-            
-            // Show selected section
-            switch(section) {
-                case "dashboard":
-                    dashboardSection.style.display = "block";
-                    break;
-                case "userManagement":
-                    userManagementSection.style.display = "block";
-                    break;
-                case "filing":
-                    filingSection.style.display = "block";
-                    break;
-                case "votingSchedule":
-                    votingScheduleSection.style.display = "block";
-                    break;
-                case "voters":
-                    votersSection.style.display = "block";
-                    break;
-                case "reporting":
-                    reportingSection.style.display = "block";
-                    break;
-            }
-        }
-
-        function emergencyClose() {
-            if (confirm("Are you sure you want to immediately close voting? This action will stop all ongoing voting.")) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.innerHTML = `
-                    <input type="hidden" name="voting_status" value="closed">
-                    <input type="hidden" name="start_date" value="<?= date('Y-m-d\TH:i') ?>">
-                    <input type="hidden" name="end_date" value="<?= date('Y-m-d\TH:i') ?>">
-                    <input type="hidden" name="description" value="Emergency closure by admin">
-                    <input type="hidden" name="updateVotingSchedule" value="1">
-                `;
-                document.body.appendChild(form);
-                form.submit();
-            }
-        }
-
-        // Validate date inputs
-        document.getElementById('start_date').addEventListener('change', function() {
-            const startDate = new Date(this.value);
-            const endDateInput = document.getElementById('end_date');
-            const endDate = new Date(endDateInput.value);
-            
-            if (endDate <= startDate) {
-                const newEndDate = new Date(startDate.getTime() + (60 * 60 * 1000));
-                endDateInput.value = newEndDate.toISOString().slice(0, 16);
-            }
-        });
-
-        document.getElementById('end_date').addEventListener('change', function() {
-            const endDate = new Date(this.value);
-            const startDate = new Date(document.getElementById('start_date').value);
-            
-            if (endDate <= startDate) {
-                alert('End date must be after start date');
-                const newEndDate = new Date(startDate.getTime() + (60 * 60 * 1000));
-                this.value = newEndDate.toISOString().slice(0, 16);
-            }
-        });
-
-        function openModal(id) { 
-            document.getElementById(id).style.display = "block"; 
-        }
-        
-        function closeModal(id) { 
-            document.getElementById(id).style.display = "none"; 
-        }
-
-        function editUser (id, email, student_id, password, role){
-            document.getElementById('edit_id').value = id;
-            document.getElementById('edit_email').value = email;
-            document.getElementById('edit_student_id').value = student_id;
-            document.getElementById('edit_password').value = password;
-            document.getElementById('edit_role').value = role;
-            openModal('editModal');
-        }
-
-       function openPreviewModal(id, name, org, position, status, profile = '', form1 = '', rec = '', prospectus = '', clearance = '', coe = '', type = 'main', block = '', comment = '') {
-    let content = `
-        <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); padding: 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #4f46e5;">
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Organization:</strong> ${org}</p>
-            <p><strong>Position/Year:</strong> ${position}</p>
-            ${block ? `<p><strong>Block Address:</strong> ${block}</p>` : ""}
-            <p><strong>Current Status:</strong> <span class="status ${status}">${status}</span></p>
-        </div>
-    `;
-
-    if (type === "main") {
-        content += `<p style="font-weight: 600; color: #1e293b; font-size: 1.1rem; margin: 20px 0 15px 0;">📁 Submitted Documents:</p><ul>`;
-        
-        if (profile) content += `<li><a href="#" onclick="showImage('${profile}', 'Profile Picture'); return false;">View Profile Picture</a></li>`;
-        if (form1) content += `<li><a href="#" onclick="showImage('${form1}', 'COMELEC Form 1'); return false;">View COMELEC Form 1</a></li>`;
-        if (rec) content += `<li><a href="#" onclick="showImage('${rec}', 'Recommendation Letter'); return false;">View Recommendation Letter</a></li>`;
-        if (prospectus) content += `<li><a href="#" onclick="showImage('${prospectus}', 'Prospectus'); return false;">View Prospectus</a></li>`;
-        if (clearance) content += `<li><a href="#" onclick="showImage('${clearance}', 'Clearance'); return false;">View Clearance</a></li>`;
-        if (coe) content += `<li><a href="#" onclick="showImage('${coe}', 'Certificate of Enrollment'); return false;">View Certificate of Enrollment</a></li>`;
-        
-        content += `</ul>`;
-    }
-
-    if(comment) {
-        content += `
-            <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px; padding: 15px; margin-top: 20px;">
-                <p style="font-weight: 600; color: #92400e; margin-bottom: 10px;">
-                    <ion-icon name="warning" style="vertical-align: middle; font-size: 1.2rem;"></ion-icon>
-                    Previous Admin Comment:
-                </p>
-                <p style="white-space: pre-wrap; background: white; padding: 15px; border-radius: 8px; color: #1e293b; margin: 0;">${comment}</p>
-            </div>
-        `;
-    }
-
-    document.getElementById("previewContent").innerHTML = content;
-    document.getElementById("preview_filing_id").value = id;
-    document.getElementById("preview_type").value = type;
-    document.getElementById("comment").value = comment || '';
-    openModal("previewModal");
-}
-
-function showImage(imagePath, fileName) {
-    // Remove any leading/trailing whitespace
-    imagePath = imagePath.trim();
-    
-    // Show the image in the preview modal
-    document.getElementById('previewImage').src = imagePath;
-    document.getElementById('imageFileName').textContent = fileName;
-    openModal('imagePreviewModal');
-}
-
-function closeImagePreview(event) {
-    // Close only if clicking outside the image
-    if (event.target.id === 'imagePreviewModal') {
-        closeModal('imagePreviewModal');
-    }
-}
-        function setAction(act) {
-            document.getElementById("preview_action").value = act;
-        }
-
-        // Close modals when clicking outside
-        window.onclick = function(event) {
-            const modals = document.getElementsByClassName('modal');
-            for (let i = 0; i < modals.length; i++) {
-                if (event.target == modals[i]) {
-                    modals[i].style.display = "none";
+            function showSection(section) {
+                dashboardSection.style.display = "none";
+                userManagementSection.style.display = "none";
+                filingSection.style.display = "none";
+                votingScheduleSection.style.display = "none";
+                votersSection.style.display = "none";
+                reportingSection.style.display = "none";
+                
+                switch(section) {
+                    case "dashboard":
+                        dashboardSection.style.display = "block";
+                        break;
+                    case "userManagement":
+                        userManagementSection.style.display = "block";
+                        break;
+                    case "filing":
+                        filingSection.style.display = "block";
+                        break;
+                    case "votingSchedule":
+                        votingScheduleSection.style.display = "block";
+                        break;
+                    case "voters":
+                        votersSection.style.display = "block";
+                        break;
+                    case "reporting":
+                        reportingSection.style.display = "block";
+                        break;
                 }
             }
-        }
-        // Admin Vote Tally Functionality
-document.getElementById('adminOrgSelect').addEventListener('change', function() {
-    const org = this.value;
-    const container = document.getElementById('adminTallyContainer');
-    
-    if (!org) {
-        container.innerHTML = '<p style="text-align: center; color: #6b7280; font-style: italic;">Select an organization to view vote tally</p>';
-        return;
-    }
 
-    // Show loading
-    container.innerHTML = '<p style="text-align: center;">Loading vote tally...</p>';
-
-    // Position hierarchy for sorting
-    const positionOrder = [
-        "President", "Vice President", "Executive Secretary", "Finance Secretary",
-        "Budget Secretary", "Auditor", "Public Information Secretary", "Property Custodian",
-        "Senators", "Legislators", "Year Representative", "Representative", "Other"
-    ];
-
-    // Fetch vote tally data
-    fetch('fetch_org_candidates.php?organization=' + encodeURIComponent(org))
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                container.innerHTML = '<p style="color: red; text-align: center;">Error: ' + data.error + '</p>';
-                return;
+            function emergencyClose() {
+                if (confirm("Are you sure you want to immediately close voting? This action will stop all ongoing voting.")) {
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.innerHTML = `
+                        <input type="hidden" name="voting_status" value="closed">
+                        <input type="hidden" name="description" value="Emergency closure by admin">
+                        <input type="hidden" name="updateVotingSchedule" value="1">
+                    `;
+                    document.body.appendChild(form);
+                    form.submit();
+                }
             }
 
-            if (!data.candidates || data.candidates.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: #6b7280;">No accepted candidates found for ' + org + '.</p>';
-                return;
+            document.getElementById('start_date').addEventListener('change', function() {
+                const startDate = new Date(this.value);
+                const endDateInput = document.getElementById('end_date');
+                const endDate = new Date(endDateInput.value);
+                
+                if (endDate <= startDate) {
+                    const newEndDate = new Date(startDate.getTime() + (60 * 60 * 1000));
+                    endDateInput.value = newEndDate.toISOString().slice(0, 16);
+                }
+            });
+
+            document.getElementById('end_date').addEventListener('change', function() {
+                const endDate = new Date(this.value);
+                const startDate = new Date(document.getElementById('start_date').value);
+                
+                if (endDate <= startDate) {
+                    alert('End date must be after start date');
+                    const newEndDate = new Date(startDate.getTime() + (60 * 60 * 1000));
+                    this.value = newEndDate.toISOString().slice(0, 16);
+                }
+            });
+
+            function openModal(id) { 
+                document.getElementById(id).style.display = "block"; 
             }
-
-            // Sort candidates by position
-            const sortedCandidates = data.candidates.sort((a, b) => {
-                const posA = positionOrder.indexOf(a.position) !== -1 ? positionOrder.indexOf(a.position) : positionOrder.length;
-                const posB = positionOrder.indexOf(b.position) !== -1 ? positionOrder.indexOf(b.position) : positionOrder.length;
-                return posA - posB;
-            });
-
-            // Build HTML table
-            let html = `<h3 style="text-align: center; margin-bottom: 20px; color: #1f2937;">Vote Tally for ${org}</h3>`;
-            html += `<table>`;
-            html += `<thead><tr>
-                        <th>Candidate Name</th>
-                        <th>Position</th>
-                        <th style="text-align: center;">Total Votes</th>
-                    </tr></thead><tbody>`;
-
-            sortedCandidates.forEach(c => {
-                const fullName = [c.first_name, c.middle_name, c.last_name].filter(Boolean).join(' ');
-                const position = c.position || 'Representative';
-                html += `<tr>
-                            <td><strong>${fullName}</strong></td>
-                            <td><span class="tally-position">${position}</span></td>
-                            <td style="text-align: center;">${c.total_votes || 0}</td>
-                        </tr>`;
-            });
-
-            html += `</tbody></table>`;
             
-            // Add summary
-            const totalVotes = sortedCandidates.reduce((sum, c) => sum + (parseInt(c.total_votes) || 0), 0);
-            html += `<div style="margin-top: 20px; padding: 15px; background: #f0f9ff; border-left: 4px solid #0ea5e9; border-radius: 6px;">`;
-            html += `<p style="margin: 0; color: #0c4a6e;"><strong>Total Votes Cast for ${org}:</strong> ${totalVotes}</p>`;
-            html += `</div>`;
+            function closeModal(id) { 
+                document.getElementById(id).style.display = "none"; 
+            }
 
-            container.innerHTML = html;
-        })
-        .catch(err => {
-            container.innerHTML = '<p style="color: red; text-align: center;">Error loading vote tally.</p>';
-            console.error(err);
-        });
-});
-// College Filter for Voters Management
+            function editUser(id, email, student_id, password, role, college) {
+                document.getElementById('edit_id').value = id;
+                document.getElementById('edit_email').value = email;
+                document.getElementById('edit_student_id').value = student_id;
+                document.getElementById('edit_password').value = password;
+                document.getElementById('edit_role').value = role;
+                document.getElementById('edit_college').value = college;
+                openModal('editModal');
+            }
+
+            function openPreviewModal(id, name, org, position, status, profile = '', form1 = '', rec = '', prospectus = '', clearance = '', coe = '', type = 'main', block = '', comment = '') {
+                let content = `
+                    <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); padding: 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #4f46e5;">
+                        <p><strong>Name:</strong> ${name}</p>
+                        <p><strong>Organization:</strong> ${org}</p>
+                        <p><strong>Position/Year:</strong> ${position}</p>
+                        ${block ? `<p><strong>Block Address:</strong> ${block}</p>` : ""}
+                        <p><strong>Current Status:</strong> <span class="status ${status}">${status}</span></p>
+                    </div>
+                `;
+
+                if (type === "main") {
+                    content += `<p style="font-weight: 600; color: #1e293b; font-size: 1.1rem; margin: 20px 0 15px 0;">📁 Submitted Documents:</p><ul>`;
+                    
+                    if (profile) content += `<li><a href="#" onclick="showImage('${profile}', 'Profile Picture'); return false;">View Profile Picture</a></li>`;
+                    if (form1) content += `<li><a href="#" onclick="showImage('${form1}', 'COMELEC Form 1'); return false;">View COMELEC Form 1</a></li>`;
+                    if (rec) content += `<li><a href="#" onclick="showImage('${rec}', 'Recommendation Letter'); return false;">View Recommendation Letter</a></li>`;
+                    if (prospectus) content += `<li><a href="#" onclick="showImage('${prospectus}', 'Prospectus'); return false;">View Prospectus</a></li>`;
+                    if (clearance) content += `<li><a href="#" onclick="showImage('${clearance}', 'Clearance'); return false;">View Clearance</a></li>`;
+                    if (coe) content += `<li><a href="#" onclick="showImage('${coe}', 'Certificate of Enrollment'); return false;">View Certificate of Enrollment</a></li>`;
+                    
+                    content += `</ul>`;
+                }
+
+                if(comment) {
+                    content += `
+                        <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px; padding: 15px; margin-top: 20px;">
+                                                       <p style="font-weight: 600; color: #92400e; margin-bottom: 10px;">
+                                <ion-icon name="chatbox-outline" style="vertical-align: middle;"></ion-icon> Previous Admin Comment:
+                            </p>
+                            <p style="color: #1e293b; font-size: 0.95rem; line-height: 1.5;">${comment || 'No comment provided'}</p>
+                        </div>
+                    `;
+                }
+
+                document.getElementById('previewContent').innerHTML = content;
+                document.getElementById('preview_filing_id').value = id;
+                document.getElementById('preview_type').value = type;
+                document.getElementById('comment').value = comment || '';
+                openModal('previewModal');
+            }
+
+            function setAction(action) {
+                document.getElementById('preview_action').value = action;
+            }
+
+            function showImage(filePath, fileName) {
+                const img = document.getElementById('previewImage');
+                img.src = filePath;
+                document.getElementById('imageFileName').innerHTML = fileName;
+                openModal('imagePreviewModal');
+            }
+
+            function closeImagePreview(event) {
+                if (event.target.classList.contains('modal')) {
+                    closeModal('imagePreviewModal');
+                }
+            }
+
+            // College Filter for Voters Management
             document.getElementById('collegeFilter').addEventListener('change', function() {
                 const selectedCollege = this.value;
                 const rows = document.querySelectorAll('#votersTable tbody tr');
@@ -1586,9 +1457,68 @@ document.getElementById('adminOrgSelect').addEventListener('change', function() 
             // Run initialization on page load
             window.addEventListener('load', initializeVotersSummary);
 
-        // Initialize with dashboard view
-        showSection('dashboard');
-    </script>
+            // Toggle navigation
+            let toggle = document.querySelector('.toggle');
+            let navigation = document.querySelector('.navigation');
+            let main = document.querySelector('.main');
+
+            toggle.onclick = function() {
+                navigation.classList.toggle('active');
+                main.classList.toggle('active');
+            };
+
+            // Add active class to selected menu item
+            let list = document.querySelectorAll('.navigation li');
+            function activeLink() {
+                list.forEach(item => item.classList.remove('hovered'));
+                this.classList.add('hovered');
+            }
+            list.forEach(item => item.addEventListener('mouseover', activeLink));
+        </script>
+
+        <style>
+            /* Ensure consistent styling for the college filter */
+            #collegeFilter {
+                background: white;
+                transition: all 0.3s ease;
+            }
+            #collegeFilter:focus {
+                border-color: #4f46e5;
+                box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+            }
+            #votersTable th, #votersTable td {
+                padding: 12px 15px;
+                text-align: left;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            #votersTable th {
+                background: #4f46e5;
+                color: white;
+                font-weight: 600;
+            }
+            #votersTable tbody tr:hover {
+                background: #f8fafc;
+            }
+            .vote-status.voted {
+                color: #059669;
+                font-weight: 600;
+            }
+            .vote-status.not-voted {
+                color: #dc2626;
+                font-weight: 600;
+            }
+            #votersSummary {
+                font-size: 0.95rem;
+                color: #1e293b;
+            }
+            #votersSummary strong {
+                color: #4f46e5;
+            }
+        </style>
+    </div>
 </body>
 </html>
-            
+
+<?php
+$conn->close();
+?>

@@ -24,13 +24,28 @@
       margin: 0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial, "Noto Sans";
       color: var(--text);
-      background: radial-gradient(1200px 800px at 10% 10%, #0b1220 0%, var(--bg) 35%, #0b1220 100%);
+      background-image: url('assets/imgs/background.webp');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      position: relative;
+      filter: "blur(50px)";
       line-height: 1.5;
+    }
+    body::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(12, 11, 11, 0.5); /* Semi-transparent overlay for readability */
+      z-index: -1;
     }
     header {
       position: sticky; top: 0; z-index: 10;
       backdrop-filter: saturate(1.2) blur(6px);
-      background: linear-gradient(180deg, rgba(15,23,42,.85), rgba(15,23,42,.65));
+      background: linear-gradient(180deg, rgba(15,23,42,.9), rgba(15,23,42,.7));
       border-bottom: 1px solid rgba(255,255,255,.06);
     }
     .container { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
@@ -55,8 +70,8 @@
       display: grid; grid-template-columns: 1.1fr .9fr; gap: 28px; align-items: stretch;
     }
     .hero {
-      background: linear-gradient(160deg, rgba(6,182,212,.15), rgba(34,197,94,.08));
-      border: 1px solid rgba(148,163,184,.15);
+      background: linear-gradient(160deg, rgba(6,182,212,.25), rgba(34,197,94,.15));
+      border: 1px solid rgba(148,163,184,.2);
       border-radius: var(--radius);
       padding: 36px; box-shadow: var(--shadow);
     }
@@ -66,10 +81,10 @@
     .features { display: grid; gap: 12px; margin-top: 16px; }
     .feat {
       display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: center;
-      padding: 12px 12px; border-radius: 12px; background: rgba(255,255,255,.03);
-      border: 1px solid rgba(148,163,184,.12);
+      padding: 12px 12px; border-radius: 12px; background: rgba(255,255,255,.05);
+      border: 1px solid rgba(148,163,184,.15);
     }
-    .feat .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--brand); box-shadow: 0 0 0 6px rgba(34,211,238,.12); justify-self: center; }
+    .feat .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--brand); box-shadow: 0 0 0 6px rgba(34,211,238,.15); justify-self: center; }
     .cta-row { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
     .btn {
       appearance: none; border: 0; cursor: pointer; font-weight: 700; border-radius: 12px; padding: 12px 16px;
@@ -80,8 +95,8 @@
     .btn:focus { outline: 2px solid var(--ring); outline-offset: 2px; }
     .btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .login-panel {
-      background: linear-gradient(180deg, rgba(17,24,39,.85), rgba(17,24,39,.7));
-      border: 1px solid rgba(148,163,184,.18);
+      background: linear-gradient(180deg, rgba(17,24,39,.9), rgba(17,24,39,.75));
+      border: 1px solid rgba(148,163,184,.2);
       border-radius: var(--radius);
       padding: 28px; box-shadow: var(--shadow);
       display: grid; gap: 16px; align-content: start; position: relative;
@@ -183,11 +198,11 @@
         <div class="field" style="position: relative;">
           <label for="password">Password</label>
           <input id="password" name="password" type="password" placeholder="MM/DD/YYYY" required minlength="6" />
-         <button type="button" id="togglePassword" aria-label="Toggle password visibility" 
+          <button type="button" id="togglePassword" aria-label="Toggle password visibility" 
             style="position: absolute; right: 12px; top: 38px; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 18px; padding: 0;">
-      👁️
-    </button>
-  </div>
+            👁️
+          </button>
+        </div>
         <div class="row">
           <label class="checkbox"><input type="checkbox" name="remember" /> Remember me</label>
           <a href="#">Forgot password?</a>
@@ -285,92 +300,90 @@
     }
 
     function verifyOtp() {
-  const code = document.getElementById('otpCode').value.trim();
-  
-  if (code.length !== 6) {
-    otpAlert.textContent = "Please enter a 6-digit code";
-    otpAlert.classList.add("error");
-    return;
-  }
-
-  verifyBtn.disabled = true;
-  verifyBtn.innerHTML = 'Verifying<span class="spinner"></span>';
-
-  fetch("verify_otp.php", {
-    method: "POST",
-    headers: { 
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json'
-    },
-    body: `otp=${encodeURIComponent(code)}`
-  })
-  .then(res => {
-    console.log('Response status:', res.status); // Debug
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    return res.text(); // Get as text first
-  })
-  .then(text => {
-    console.log('Raw response:', text); // Debug
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      console.error('JSON parse error:', e);
-      console.error('Response text:', text);
-      throw new Error('Invalid JSON response from server');
-    }
-  })
-  .then(data => {
-    console.log('Parsed data:', data); // Debug
-    verifyBtn.disabled = false;
-    verifyBtn.textContent = 'Verify';
-    
-    if (data.status === "success") {
-      otpAlert.textContent = "OTP verified! Redirecting...";
-      otpAlert.classList.remove("error");
+      const code = document.getElementById('otpCode').value.trim();
       
-      setTimeout(() => {
-        if (userRole === "voter") {
-          window.location.href = "Voters.php";
-        } else if (userRole === "admin") {
-          window.location.href = "admin.php";
-        } else if (userRole === "commissioner") {
-          window.location.href = "commissioners.php";
-        } else {
-          window.location.href = "home.php";
+      if (code.length !== 6) {
+        otpAlert.textContent = "Please enter a 6-digit code";
+        otpAlert.classList.add("error");
+        return;
+      }
+
+      verifyBtn.disabled = true;
+      verifyBtn.innerHTML = 'Verifying<span class="spinner"></span>';
+
+      fetch("verify_otp.php", {
+        method: "POST",
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        },
+        body: `otp=${encodeURIComponent(code)}`
+      })
+      .then(res => {
+        console.log('Response status:', res.status);
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
         }
-      }, 1500);
-    } else {
-      otpAlert.textContent = data.message || "Invalid OTP code. Please try again.";
-      otpAlert.classList.add("error");
+        return res.text();
+      })
+      .then(text => {
+        console.log('Raw response:', text);
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          console.error('Response text:', text);
+          throw new Error('Invalid JSON response from server');
+        }
+      })
+      .then(data => {
+        console.log('Parsed data:', data);
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify';
+        
+        if (data.status === "success") {
+          otpAlert.textContent = "OTP verified! Redirecting...";
+          otpAlert.classList.remove("error");
+          
+          setTimeout(() => {
+            if (userRole === "voter") {
+              window.location.href = "Voters.php";
+            } else if (userRole === "admin") {
+              window.location.href = "admin.php";
+            } else if (userRole === "commissioner") {
+              window.location.href = "commissioners.php";
+            } else {
+              window.location.href = "home.php";
+            }
+          }, 1500);
+        } else {
+          otpAlert.textContent = data.message || "Invalid OTP code. Please try again.";
+          otpAlert.classList.add("error");
+        }
+      })
+      .catch(err => {
+        console.error('Fetch error:', err);
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify';
+        otpAlert.textContent = "Error: " + err.message;
+        otpAlert.classList.add("error");
+      });
     }
-  })
-  .catch(err => {
-    console.error('Fetch error:', err); // Debug
-    verifyBtn.disabled = false;
-    verifyBtn.textContent = 'Verify';
-    otpAlert.textContent = "Error: " + err.message;
-    otpAlert.classList.add("error");
-  });
-}
 
     document.getElementById('otpCode').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') {
         verifyOtp();
       }
     });
+
     const passwordInput = document.getElementById('password');
     const togglePasswordBtn = document.getElementById('togglePassword');
 
-togglePasswordBtn.addEventListener('click', () => {
-  const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-  passwordInput.setAttribute('type', type);
-  
-  // Change icon accordingly (optional)
-  togglePasswordBtn.textContent = type === 'password' ? '👁️' : '🙈';
-});
-
+    togglePasswordBtn.addEventListener('click', () => {
+      const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+      passwordInput.setAttribute('type', type);
+      togglePasswordBtn.textContent = type === 'password' ? '👁️' : '🙈';
+    });
   </script>
 </body>
 </html>

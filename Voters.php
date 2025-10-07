@@ -489,7 +489,7 @@ if (isset($_SESSION['message'])) {
                 <li>
                     <a href="#">
                         <span class="icon">
-                            <img src="catsu.png" alt="CATSU-iVote Logo" style="width:24px; height:24px;">
+                            <img src="assets/imgs/catsu.png" alt="CATSU-iVote Logo" style="width:24px; height:24px;">
                         </span>
                         <span class="title">CATSU-iVote Voters</span>
                     </a>
